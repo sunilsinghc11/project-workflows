@@ -46,3 +46,4 @@ jobs:
             run: |
                   jf rt ping
                   echo "Sucessfully Authenticated."
+                  echo "Sleep 60000" 
