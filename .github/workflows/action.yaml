@@ -1,69 +1,64 @@
 name: 'JF Get Access Token'
-description: 'Get Artifactory access token using OIDC from GitHub'
 
-# Specify the events that will trigger this workflow
+
 on:
   workflow_dispatch:  # Allows manual triggering of the workflow from the GitHub Actions UI
   push:               # Triggered when there's a push to the repository
     branches:
       - main          # Only run on pushes to the main branch
 
-inputs:
-  jfrog-url:
-    default: https://psazuse.jfrog.io
-    type: string
-  jfrog-oidc-audience:
-    default: optum-main-aud
-    type: string
-    required: false
-  jfrog-oidc-provider:
-    default: optum-main-oidc
-    type: string
-    required: false
+jobs:
+  get-access-token:
+    runs-on: ubuntu-latest
 
-outputs:
-  access-token:
-    description: "Access token retrieved by using workflows OIDC ID"
-    value: ${{ steps.get-access-token.outputs.access-token }}
-  oidc-subject:
-    description: "Subject of our OIDC token"
-    value: ${{ steps.get-access-token.outputs.oidc-subject }}
+    # Define job-level outputs
+    outputs:
+      access-token: ${{ steps.get-access-token.outputs.access-token }}
+      oidc-subject: ${{ steps.get-access-token.outputs.oidc-subject }}
 
-runs:
-  using: "composite"
-  steps:
-    - name: Install jq
-      run: sudo apt-get install -y jq
+    # Define steps to perform within the job
+    steps:
+      - name: Install jq
+        run: sudo apt-get install -y jq
       
-    - name: Get id token
-      id: get-access-token
-      shell: bash
-      run: |
-        # Fetch GitHub OIDC token
-        echo "Fetching GitHub OIDC token..."
-        GITHUB_OIDC_TOKEN=$(curl -sLS -H "User-Agent: actions/oidc-client" -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-          "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${{ inputs.jfrog-oidc-audience }}")
-        echo "GitHub OIDC Token Response: $GITHUB_OIDC_TOKEN"
-        
-        # Extract ID token from response
-        ID_TOKEN=$(echo "$GITHUB_OIDC_TOKEN" | jq -r .value)
-        if [ -z "$ID_TOKEN" ]; then
-          echo "Error: ID_TOKEN is empty. Check if the GitHub OIDC token was retrieved correctly."
-          exit 1
-        fi
-        echo "ID_TOKEN successfully retrieved."
+      - name: Get id token
+        id: get-access-token
+        shell: bash
+        env:
+          JFROG_URL: https://psazuse.jfrog.io
+          JFROG_OIDC_AUDIENCE: optum-main-aud
+          JFROG_OIDC_PROVIDER: optum-main-oidc
+        run: |
+          # Fetch GitHub OIDC token
+          echo "Fetching GitHub OIDC token..."
+          GITHUB_OIDC_TOKEN=$(curl -sLS -H "User-Agent: actions/oidc-client" -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${JFROG_OIDC_AUDIENCE}")
+          echo "GitHub OIDC Token Response: $GITHUB_OIDC_TOKEN"
+          
+          # Extract ID token from response
+          ID_TOKEN=$(echo "$GITHUB_OIDC_TOKEN" | jq -r .value)
+          if [ -z "$ID_TOKEN" ]; then
+            echo "Error: ID_TOKEN is empty. Check if the GitHub OIDC token was retrieved correctly."
+            exit 1
+          fi
+          echo "ID_TOKEN successfully retrieved."
 
-        # Exchange GitHub ID token for JFrog access token
-        echo "Requesting JFrog access token..."
-        JFROG_OIDC_TOKEN=$(curl -s -XPOST -H "Content-Type: application/json" "${{ inputs.jfrog-url }}/access/api/v1/oidc/token" \
-          -d "{\"grant_type\": \"urn:ietf:params:oauth:grant-type:token-exchange\", \"subject_token_type\":\"urn:ietf:params:oauth:token-type:id_token\", \"subject_token\": \"${ID_TOKEN}\", \"provider_name\": \"${{ inputs.jfrog-oidc-provider }}\", \"project_key\": \"\"}")
-        echo "JFrog OIDC Token Response: $JFROG_OIDC_TOKEN"
-        
-        # Extract access token and subject from response
-        ACCESS_TOKEN=$(echo "$JFROG_OIDC_TOKEN" | jq -r .access_token)
-        SUBJECT=$(echo "$JFROG_OIDC_TOKEN" | jq -r .username)
+          # Exchange GitHub ID token for JFrog access token
+          echo "Requesting JFrog access token..."
+          JFROG_OIDC_TOKEN=$(curl -s -XPOST -H "Content-Type: application/json" "$JFROG_URL/access/api/v1/oidc/token" \
+            -d "{\"grant_type\": \"urn:ietf:params:oauth:grant-type:token-exchange\", \"subject_token_type\":\"urn:ietf:params:oauth:token-type:id_token\", \"subject_token\": \"${ID_TOKEN}\", \"provider_name\": \"${JFROG_OIDC_PROVIDER}\", \"project_key\": \"\"}")
+          echo "JFrog OIDC Token Response: $JFROG_OIDC_TOKEN"
+          
+          # Extract access token and subject from response
+          ACCESS_TOKEN=$(echo "$JFROG_OIDC_TOKEN" | jq -r .access_token)
+          SUBJECT=$(echo "$JFROG_OIDC_TOKEN" | jq -r .username)
 
-        if [ -z "$ACCESS_TOKEN" ] || [ -z "$SUBJECT" ]; then
-          echo "Error: ACCESS_TOKEN or SUBJECT is missing in the JFrog response. Check if JFrog response has expected keys."
-          exit 1
-       
+          if [ -z "$ACCESS_TOKEN" ] || [ -z "$SUBJECT" ]; then
+            echo "Error: ACCESS_TOKEN or SUBJECT is missing in the JFrog response. Check if JFrog response has expected keys."
+            exit 1
+          fi
+
+          # Set output variables
+          echo "Setting output variables..."
+          echo "::set-output name=access-token::$ACCESS_TOKEN"
+          echo "::set-output name=oidc-subject::$SUBJECT"
