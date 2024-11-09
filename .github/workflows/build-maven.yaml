@@ -3,9 +3,9 @@ name: CI
 on:
   push:
     branches:
-      - main
-      - dev
-      - oidc-test
+     # - main
+     # - dev
+     # - oidc-test
   pull_request:
     branches:
       - main
